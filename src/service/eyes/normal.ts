@@ -99,7 +99,6 @@ export function drawEyesHappy(
   for (let x = 0; x < canvas.width / 5; x++) {
     for (let y = 0; y < canvas.height / 5; y++) {
       const dx = x - centerX;
-      const dy = y - centerY;
 
       // Create arch shape - parabola opening upward (smile)
       const archWidth = radius * 0.8; // Width of the arch
