@@ -1,6 +1,9 @@
 import "./style.css";
 import { startListening } from "./service/listen";
-import { drawEyesNormal, drawEyesHappy } from "./service/eyes/normal";
+import {
+  drawEyesNormal,
+  //drawEyesHappy
+} from "./service/eyes/normal";
 
 // Function to send text to the API and play the audio response
 async function submitTextToSpeech(text: string) {
