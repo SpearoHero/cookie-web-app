@@ -159,7 +159,7 @@ async function fetchAccessToken(): Promise<string> {
   console.log("[auth] Fetching token from /api/chat-token");
   let res: Response;
   try {
-    res = await fetch("/api/chat-token");
+    res = await fetch(`${process.env.API_BASE_URL || "http://localhost:3000"}/api/chat-token`);
   } catch {
     throw new Error(
       "Cannot reach the API server at localhost:3000. Make sure cookie-api is running.",
