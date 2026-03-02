@@ -156,17 +156,14 @@ function appendTranscriptEntry(entry: ConversationEntry): void {
  * (which the SDK treats as a raw API key and sends with the wrong auth scheme).
  */
 async function fetchAccessToken(): Promise<string> {
-  console.log("[auth] Fetching token from /api/chat-token");
-  const vite_api_url = process.env.VITE_API_URL + " -wtf";
-  console.log("VITE_API_URL:", vite_api_url);
   let res: Response;
   try {
     res = await fetch(
-      `${process.env.VITE_API_URL || "http://localhost:3000"}/api/chat-token`,
+      `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/chat-token`,
     );
   } catch {
     throw new Error(
-      `Cannot reach the API server at ${process.env.VITE_API_URL || "http://localhost:3000"}. Make sure cookie-api is running.`,
+      `Cannot reach the API server at ${import.meta.env.VITE_API_URL || "http://localhost:3000"}. Make sure cookie-api is running.`,
     );
   }
 
