@@ -159,7 +159,7 @@ async function fetchAccessToken(): Promise<string> {
   let res: Response;
   try {
     res = await fetch(
-      `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/chat-token`,
+      `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/chat-token`,
     );
   } catch {
     throw new Error(
