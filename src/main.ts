@@ -157,6 +157,8 @@ function appendTranscriptEntry(entry: ConversationEntry): void {
  */
 async function fetchAccessToken(): Promise<string> {
   console.log("[auth] Fetching token from /api/chat-token");
+  const vite_api_url = process.env.VITE_API_URL + " -wtf";
+  console.log("VITE_API_URL:", vite_api_url);
   let res: Response;
   try {
     res = await fetch(
