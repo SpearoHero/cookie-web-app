@@ -1,3 +1,30 @@
+export function setupFaceCanvas(canvas: HTMLCanvasElement) {
+  // Set up the canvas grid
+  const ctx = canvas.getContext("2d")!;
+
+  const button = document.getElementById("agent-btn")!;
+  const transcript = document.getElementById("transcript")!;
+  let active = false;
+
+  // Set black background
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const leftEyeX = 25;
+  const leftEyeY = 35;
+  const leftEyeRadius = 22;
+  drawEyesNormal(ctx, canvas, leftEyeX, leftEyeY, leftEyeRadius);
+  //drawEyesHappy(ctx, canvas, leftEyeX, leftEyeY, leftEyeRadius);
+
+  const rightEyeX = 87;
+  const rightEyeY = 35;
+  const rightEyeRadius = 22;
+  drawEyesNormal(ctx, canvas, rightEyeX, rightEyeY, rightEyeRadius);
+  //drawEyesHappy(ctx, canvas, rightEyeX, rightEyeY, rightEyeRadius);
+  // Restore canvas transformation
+  ctx.restore();
+}
+
 // Function to draw circles with rings on a canvas
 export function drawEyesNormal(
   ctx: CanvasRenderingContext2D,

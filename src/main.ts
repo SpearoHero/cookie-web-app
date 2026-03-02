@@ -1,177 +1,236 @@
+import "./polyfills"; // must be first — polyfills Buffer for the Deepgram SDK
 import "./style.css";
-import { startListening } from "./service/listen";
-import {
-  drawEyesNormal,
-  //drawEyesHappy
-} from "./service/eyes/normal";
+import "./style2.css";
+import { VoiceAgent, AgentStatus, ConversationEntry } from "./voiceAgent";
+import { setupFaceCanvas } from "./service/face/expressions";
 
-// Function to send text to the API and play the audio response
-async function submitTextToSpeech(text: string) {
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const toggleBtn = document.getElementById("toggle-btn") as HTMLButtonElement;
+const micIcon = document.getElementById("mic-icon") as unknown as SVGElement;
+const stopIcon = document.getElementById("stop-icon") as unknown as SVGElement;
+const statusBadge = document.getElementById("status-badge") as HTMLDivElement;
+const statusLabel = document.getElementById("status-label") as HTMLSpanElement;
+const statusMessage = document.getElementById(
+  "status-message",
+) as HTMLParagraphElement;
+const errorBanner = document.getElementById("error-banner") as HTMLDivElement;
+const errorMessage = document.getElementById(
+  "error-message",
+) as HTMLSpanElement;
+const transcriptWrapper = document.getElementById(
+  "transcript-wrapper",
+) as HTMLDivElement;
+const transcript = document.getElementById("transcript") as HTMLDivElement;
+const clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
+const visualizer = document.getElementById("visualizer") as HTMLDivElement;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let agent: VoiceAgent | null = null;
+let isActive = false;
+
+// ── Status helpers ────────────────────────────────────────────────────────────
+const STATUS_CONFIG: Record<
+  AgentStatus,
+  {
+    label: string;
+    message: string;
+    badgeClass: string;
+    visualizerClass: string;
+  }
+> = {
+  idle: {
+    label: "Ready",
+    message: "Click to start a voice conversation",
+    badgeClass: "status-idle",
+    visualizerClass: "",
+  },
+  connecting: {
+    label: "Connecting…",
+    message: "Connecting to Cookie…",
+    badgeClass: "status-connecting",
+    visualizerClass: "connecting",
+  },
+  connected: {
+    label: "Connected",
+    message: "Connected — configuring agent…",
+    badgeClass: "status-connected",
+    visualizerClass: "active",
+  },
+  listening: {
+    label: "Listening",
+    message: "Go ahead, I'm listening…",
+    badgeClass: "status-listening",
+    visualizerClass: "listening",
+  },
+  "agent-thinking": {
+    label: "Thinking…",
+    message: "Cookie is thinking…",
+    badgeClass: "status-thinking",
+    visualizerClass: "thinking",
+  },
+  "agent-speaking": {
+    label: "Speaking",
+    message: "Cookie is speaking…",
+    badgeClass: "status-speaking",
+    visualizerClass: "speaking",
+  },
+  error: {
+    label: "Error",
+    message: "Something went wrong.",
+    badgeClass: "status-error",
+    visualizerClass: "",
+  },
+  disconnected: {
+    label: "Disconnected",
+    message: "Session ended. Click to start again.",
+    badgeClass: "status-idle",
+    visualizerClass: "",
+  },
+};
+
+function applyStatus(status: AgentStatus): void {
+  const config = STATUS_CONFIG[status];
+
+  // Badge
+  statusBadge.className = `status-badge ${config.badgeClass}`;
+  statusLabel.textContent = config.label;
+
+  // Message
+  statusMessage.textContent = config.message;
+
+  // Visualizer animation class
+  visualizer.className = `visualizer${config.visualizerClass ? " " + config.visualizerClass : ""}`;
+
+  // Toggle button icons
+  const running =
+    status !== "idle" && status !== "error" && status !== "disconnected";
+
+  micIcon.style.display = running ? "none" : "";
+  stopIcon.style.display = running ? "" : "none";
+
+  toggleBtn.disabled = status === "connecting";
+}
+
+function showError(msg: string): void {
+  errorBanner.style.display = "flex";
+  errorMessage.textContent = msg;
+}
+
+function clearError(): void {
+  errorBanner.style.display = "none";
+  errorMessage.textContent = "";
+}
+
+// ── Conversation transcript ────────────────────────────────────────────────────
+function appendTranscriptEntry(entry: ConversationEntry): void {
+  transcriptWrapper.style.display = "block";
+
+  const row = document.createElement("div");
+  row.className = `transcript-row ${entry.role}`;
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = entry.content;
+
+  const time = document.createElement("span");
+  time.className = "bubble-time";
+  time.textContent = entry.timestamp.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  row.appendChild(bubble);
+  row.appendChild(time);
+  transcript.appendChild(row);
+
+  // Scroll to bottom
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+// ── Start / stop ───────────────────────────────────────────────────────────────
+
+/**
+ * Fetches a short-lived Deepgram access token from the cookie-api backend.
+ * The token is generated via deepgram.auth.grantToken() and must be passed
+ * to createClient() as { accessToken } (Bearer scheme) — NOT as a plain string
+ * (which the SDK treats as a raw API key and sends with the wrong auth scheme).
+ */
+async function fetchAccessToken(): Promise<string> {
+  console.log("[auth] Fetching token from /api/chat-token");
+  let res: Response;
   try {
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+    res = await fetch("/api/chat-token");
+  } catch {
+    throw new Error(
+      "Cannot reach the API server at localhost:3000. Make sure cookie-api is running.",
+    );
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Token endpoint returned ${res.status}: ${body || res.statusText}`,
+    );
+  }
+
+  const json = await res.json();
+  if (!json.token) throw new Error("Token endpoint returned no token field");
+
+  console.log("[auth] Got grantToken access token");
+  return json.token as string;
+}
+
+async function startConversation(): Promise<void> {
+  clearError();
+  isActive = true;
+  applyStatus("connecting");
+
+  try {
+    const token = await fetchAccessToken();
+
+    agent = new VoiceAgent({
+      onStatusChange: (status) => {
+        applyStatus(status);
+        if (status === "disconnected" || status === "error") {
+          isActive = false;
+        }
+      },
+      onConversationText: appendTranscriptEntry,
+      onError: showError,
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    // Get the raw binary audio data as a blob
-    const audioBlob = await response.blob();
-
-    // Create audio URL and play
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
-    await audio.play();
-
-    // Clean up the URL when audio ends
-    audio.onended = () => URL.revokeObjectURL(audioUrl);
-  } catch (error) {
-    console.error("Error:", error);
-    alert(
-      `Failed to process request: ${error instanceof Error ? error.message : "Unknown error"}`,
+    await agent.start(token);
+  } catch (err) {
+    isActive = false;
+    applyStatus("error");
+    showError(
+      err instanceof Error ? err.message : "Failed to start conversation",
     );
+    agent = null;
   }
 }
 
-// Set up the UI
-document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
-  <div class="container">
-    <canvas id="robot-face" width="800" height="400"></canvas>
-    <div class="card">
-      <textarea 
-        id="textInput" 
-        rows="3"
-      ></textarea>
-      <button id="submitBtn" type="button" style="display: none;">Submit</button>
-      <div id="status"></div>
-    </div>
-  </div>
-`;
+function stopConversation(): void {
+  agent?.disconnect();
+  agent = null;
+  isActive = false;
+  applyStatus("idle");
+}
 
-// Set up the canvas grid
-const canvas = document.querySelector<HTMLCanvasElement>("#robot-face")!;
-const ctx = canvas.getContext("2d")!;
-
-// Set black background
-ctx.fillStyle = "black";
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-const leftEyeX = 25;
-const leftEyeY = 35;
-const leftEyeRadius = 22;
-drawEyesNormal(ctx, canvas, leftEyeX, leftEyeY, leftEyeRadius);
-//drawEyesHappy(ctx, canvas, leftEyeX, leftEyeY, leftEyeRadius);
-
-const rightEyeX = 87;
-const rightEyeY = 35;
-const rightEyeRadius = 22;
-drawEyesNormal(ctx, canvas, rightEyeX, rightEyeY, rightEyeRadius);
-//drawEyesHappy(ctx, canvas, rightEyeX, rightEyeY, rightEyeRadius);
-// Restore canvas transformation
-ctx.restore();
-
-// Add event listener for submit button
-const submitBtn = document.querySelector<HTMLButtonElement>("#submitBtn")!;
-const textInput = document.querySelector<HTMLTextAreaElement>("#textInput")!;
-const status = document.querySelector<HTMLDivElement>("#status")!;
-
-let silenceTimer: number | null = null;
-let hasReceivedText = false;
-let isListeningMode = false;
-
-const recognition = startListening(() => {
-  console.log("COOKIE!");
+// ── Event listeners ───────────────────────────────────────────────────────────
+toggleBtn.addEventListener("click", () => {
+  if (isActive) {
+    stopConversation();
+  } else {
+    startConversation();
+  }
 });
 
-// Add speech recognition result handler
-recognition.onresult = (event: any) => {
-  // First check for "cookie" trigger
-  for (let i = event.resultIndex; i < event.results.length; i++) {
-    const transcript = event.results[i][0].transcript.toLowerCase().trim();
-
-    if (transcript.includes("cookie")) {
-      isListeningMode = true;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      drawEyesNormal(
-        ctx,
-        canvas,
-        leftEyeX,
-        leftEyeY,
-        leftEyeRadius,
-        "listening",
-      );
-      drawEyesNormal(
-        ctx,
-        canvas,
-        rightEyeX,
-        rightEyeY,
-        rightEyeRadius,
-        "listening",
-      );
-
-      // Don't process this result, wait for the next ones
-      return;
-    }
-  }
-
-  // Only process text if we're in listening mode (after "cookie" was detected)
-  if (!isListeningMode) {
-    return;
-  }
-
-  let finalTranscript = "";
-
-  for (let i = event.resultIndex; i < event.results.length; i++) {
-    const transcript = event.results[i][0].transcript;
-
-    if (event.results[i].isFinal) {
-      finalTranscript += transcript + " ";
-    }
-  }
-
-  if (finalTranscript) {
-    hasReceivedText = true;
-    textInput.value += finalTranscript;
-
-    // Clear existing timer
-    if (silenceTimer) {
-      clearTimeout(silenceTimer);
-    }
-
-    // Set new timer for 1 second of silence
-    silenceTimer = window.setTimeout(() => {
-      if (hasReceivedText && textInput.value.trim()) {
-        // Submit the form
-        submitBtn.click();
-      }
-      recognition.stop();
-      hasReceivedText = false;
-      isListeningMode = false;
-    }, 1000);
-  }
-};
-
-submitBtn.addEventListener("click", async () => {
-  const text = textInput.value.trim();
-
-  if (!text) {
-    alert("Please enter some text");
-    return;
-  }
-
-  submitBtn.disabled = true;
-  status.textContent = "Processing...";
-
-  await submitTextToSpeech(text);
-
-  submitBtn.disabled = false;
-  status.textContent = "";
-  textInput.value = "";
-  recognition.start();
+clearBtn.addEventListener("click", () => {
+  transcript.innerHTML = "";
+  transcriptWrapper.style.display = "none";
 });
+
+// Initial state
+setupFaceCanvas(document.getElementById("robot-face") as HTMLCanvasElement);
+applyStatus("idle");

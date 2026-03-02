@@ -1,15 +1,19 @@
 {
-  "name": "cookie-app",
+  "name": "cookie-voice-agent",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
+  "dependencies": {
+    "@deepgram/sdk": "^4.11.3",
+    "buffer": "^6.0.3"
+  },
   "devDependencies": {
-    "typescript": "~5.9.3",
-    "vite": "^7.2.4"
+    "typescript": "^5.4.5",
+    "vite": "^5.2.0"
   }
 }
